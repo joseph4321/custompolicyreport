@@ -17,47 +17,71 @@ if($_GET["submit"] == 1){
 	$environment = $_POST["environment"];
 	$policies = $_POST["policies"];
 	
-	if(strcmp($environment,"dev") == 0 ||
-	   strcmp($environment,"qa") == 0 ||
-	   strcmp($environment,"prod") == 0 ||
-	   strcmp($environment,"ext") == 0)
-	{
+	// if the environment does not exists, exit
+	if(strcmp($environment,"dev") != 0 &&
+	   strcmp($environment,"qa") != 0 &&
+	   strcmp($environment,"prod") != 0 &&
+	   strcmp($environment,"ext") != 0){
 
-		if(strlen($policies)>20000){print "policies too large.\n";exit;}
-
-		// record the environment
-		$myfile = fopen("/tmp/testfile.env", "w");
-		$r = `echo "$environment" > /tmp/testfile.env`;
-		fwrite($myfile,$environment);
-
-		// record the policies, fix the newline characters
-		$myfile = fopen("/tmp/testfile1.txt", "w");
-		fwrite($myfile,$policies);
-		$r = `tr -d '\r' < /tmp/testfile1.txt > /tmp/testfile.txt`;
-		fclose($myfile);
-
-		// search through existing policies for the policies in /tmp/testfile.txt
-		$out = `perl /home/user/summarize-policies-custom.pl`;
-
-		// print out the results
-		print "<CENTER><H2>Policy Audit - Custom</H2></CENTER>\n";
-		print "Click on \"Expand\" next to the policy path to get more details on the policy.  The first column is a \"flags\" column, and will summarize the enabled protections for the service.<BR><BR>\n";
-		print "<B><U>Key</U></B><BR>\n";
-		print "The flags column is in the format &lt;requestFlags&gt;-&lt;responseFlags&gt;.  If the policy is using a custom variable for the target message, it will not be reflected as its use is ambiguous.<BR>L - Size limit enabled<BR>\n";
-		print "R - Rate limit enabled<BR>\n";
-		print "C - Protect against code injection enabled<BR>\n";
-		print "F - CSRF protections enabled<BR>\n";
-		print "J - JSON protections enabled<BR>\n";
-		print "S - SQL protections enabled<BR>\n";
-		print "X - XML protections enabeld<BR><BR>\n";
-		print "A key (<img src=\"/key.png\" width=\"20px\" height=\"20px\">) icon indicates the policy uses TLS 1.2<BR>\n";
-		print "A cert error (<img src=\"/nocert.png\">) icon indicates no cert authentication was detected<BR><BR>\n";
-		print "<HTML><BODY><SPAN STYLE=\"text-decoration:underline;color:blue\" onClick=\"toggle_all()\">Expand All</SPAN><BR><BR>\n";
-		print $out;
+		print "environment not found\n";
+		exit;
 	}
-	else{
-		print "error getting environment\n";exit;
+
+	// if policies string length is exceedingly large, exit
+	if(strlen($policies)>20000){print "policies too large.\n";exit;}
+
+	// gather existing policies from existing policy audit
+	$tmpPolicies = `cat /var/www/html/reports/policy_audit_$environment.html`;
+	$apolicies = explode("\n",$tmpPolicies);
+
+	// store all submitted policies in submittedPolicies
+	$policies = trim($policies);
+	$submittedPolicies = explode("\r\n",$policies);
+
+	// store found policies in allp associative array, key is the policy name
+	// value is the policy html
+	$inPolicy=0;
+	$buf = "";
+	$foundPolicy="";
+	$allp = array();
+	foreach( $apolicies as $line ){
+        	$line = trim($line);
+        	if( $inPolicy == 1 ){ $buf .= $line."\n"; }
+        	if( preg_match("/\&nbsp\;---------- (.*)/",$line,$matches) == 1 ){
+                	$foundPolicy = $matches[1];
+                	$buf .= $line."\n";
+                	$inPolicy = 1;
+        	}
+        	if( preg_match("/\<SCRIPT/",$line) == 1 && $inPolicy == 1 ){
+                	$allp["$foundPolicy"] = $buf;
+                	$buf="";
+                	$inPolicy=0;
+        	}
 	}
+
+	// print out the results
+	print "<CENTER><H2>Policy Audit - Custom</H2></CENTER>\n";
+	print "Click on \"Expand\" next to the policy path to get more details on the policy.  The first column is a \"flags\" column, and will summarize the enabled protections for the service.<BR><BR>\n";
+	print "<B><U>Key</U></B><BR>\n";
+	print "The flags column is in the format &lt;requestFlags&gt;-&lt;responseFlags&gt;.  If the policy is using a custom variable for the target message, it will not be reflected as its use is ambiguous.<BR>L - Size limit enabled<BR>\n";
+	print "R - Rate limit enabled<BR>\n";
+	print "C - Protect against code injection enabled<BR>\n";
+	print "F - CSRF protections enabled<BR>\n";
+	print "J - JSON protections enabled<BR>\n";
+	print "S - SQL protections enabled<BR>\n";
+	print "X - XML protections enabeld<BR><BR>\n";
+	print "A key (<img src=\"/key.png\" width=\"20px\" height=\"20px\">) icon indicates the policy uses TLS 1.2<BR>\n";
+	print "A cert error (<img src=\"/nocert.png\">) icon indicates no cert authentication was detected<BR><BR>\n";
+	print "<HTML><BODY><SPAN STYLE=\"text-decoration:underline;color:blue\" onClick=\"toggle_all()\">Expand All</SPAN><BR><BR>\n";
+
+	// loop through submitted policies and check if the key exists
+	// in $allp.  If not, note that it does not exist
+        foreach( $submittedPolicies as $v){
+        	if( array_key_exists($v,$allp) ){
+               		print $allp{"$v"};
+                }
+                else{print substr($v,0,20)."... does not exists<BR>\n";}
+        }
 }
 else{ // form not submitted, print default page
 
@@ -65,7 +89,7 @@ else{ // form not submitted, print default page
 
 <!-- Default page -->
 <CENTER><H2>Create Custom Policy Audits</H2></CENTER>
-	<form action="https://corp.localsite.com/reports/policy_audit_custom.php?submit=1" method="post">
+	<form action="https://cop.localsite.com/policy_audit_custom.php?submit=1" method="post">
 		Please specify the environment:&nbsp;&nbsp;
 		<select name="environment" id="environment">
 			<option value="dev">Dev</option>
